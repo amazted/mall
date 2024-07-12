@@ -60,8 +60,8 @@ public class MemberAttentionController {
     @RequestMapping(value = "/detail", method = RequestMethod.GET)
     @ResponseBody
     public CommonResult<MemberBrandAttention> detail(@RequestParam Long brandId) {
-        MemberBrandAttention memberBrandAttention = memberAttentionService.detail(brandId);
-        return CommonResult.success(memberBrandAttention);
+        MemberBrandAttention brandAttention = memberAttentionService.detail(brandId);
+        return CommonResult.success(brandAttention);
     }
 
     @ApiOperation("清空当前用户品牌关注列表")

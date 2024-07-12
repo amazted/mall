@@ -27,6 +27,7 @@ import java.util.List;
 @Tag(name = "UmsMemberCouponController", description = "用户优惠券管理")
 @RequestMapping("/member/coupon")
 public class UmsMemberCouponController {
+
     @Autowired
     private UmsMemberCouponService memberCouponService;
     @Autowired
@@ -39,7 +40,7 @@ public class UmsMemberCouponController {
     @ResponseBody
     public CommonResult add(@PathVariable Long couponId) {
         memberCouponService.add(couponId);
-        return CommonResult.success(null,"领取成功");
+        return CommonResult.success(null, "领取成功");
     }
 
     @ApiOperation("获取会员优惠券历史列表")
@@ -68,8 +69,8 @@ public class UmsMemberCouponController {
     @RequestMapping(value = "/list/cart/{type}", method = RequestMethod.GET)
     @ResponseBody
     public CommonResult<List<SmsCouponHistoryDetail>> listCart(@PathVariable Integer type) {
-        List<CartPromotionItem> cartPromotionItemList = cartItemService.listPromotion(memberService.getCurrentMember().getId(), null);
-        List<SmsCouponHistoryDetail> couponHistoryList = memberCouponService.listCart(cartPromotionItemList, type);
+        List<CartPromotionItem> cartPromotionItemList = getCartPromotionItems();
+        List<SmsCouponHistoryDetail> couponHistoryList = getCouponHistoryDetails(cartPromotionItemList, type);
         return CommonResult.success(couponHistoryList);
     }
 
@@ -79,5 +80,14 @@ public class UmsMemberCouponController {
     public CommonResult<List<SmsCoupon>> listByProduct(@PathVariable Long productId) {
         List<SmsCoupon> couponHistoryList = memberCouponService.listByProduct(productId);
         return CommonResult.success(couponHistoryList);
+    }
+
+    private List<CartPromotionItem> getCartPromotionItems() {
+        Long memberId = memberService.getCurrentMember().getId();
+        return cartItemService.listPromotion(memberId, null);
+    }
+
+    private List<SmsCouponHistoryDetail> getCouponHistoryDetails(List<CartPromotionItem> cartPromotionItemList, Integer type) {
+        return memberCouponService.listCart(cartPromotionItemList, type);
     }
 }

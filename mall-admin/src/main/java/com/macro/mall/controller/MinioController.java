@@ -30,6 +30,7 @@ import java.util.Date;
 public class MinioController {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MinioController.class);
+
     @Value("${minio.endpoint}")
     private String ENDPOINT;
     @Value("${minio.bucketName}")
@@ -44,45 +45,76 @@ public class MinioController {
     @ResponseBody
     public CommonResult upload(@RequestPart("file") MultipartFile file) {
         try {
-            //创建一个MinIO的Java客户端
-            MinioClient minioClient =MinioClient.builder()
-                    .endpoint(ENDPOINT)
-                    .credentials(ACCESS_KEY,SECRET_KEY)
-                    .build();
-            boolean isExist = minioClient.bucketExists(BucketExistsArgs.builder().bucket(BUCKET_NAME).build());
-            if (isExist) {
-                LOGGER.info("存储桶已经存在！");
-            } else {
-                //创建存储桶并设置只读权限
-                minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
-                BucketPolicyConfigDto bucketPolicyConfigDto = createBucketPolicyConfigDto(BUCKET_NAME);
-                SetBucketPolicyArgs setBucketPolicyArgs = SetBucketPolicyArgs.builder()
-                        .bucket(BUCKET_NAME)
-                        .config(JSONUtil.toJsonStr(bucketPolicyConfigDto))
-                        .build();
-                minioClient.setBucketPolicy(setBucketPolicyArgs);
-            }
-            String filename = file.getOriginalFilename();
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
-            // 设置存储对象名称
-            String objectName = sdf.format(new Date()) + "/" + filename;
-            // 使用putObject上传一个文件到存储桶中
-            PutObjectArgs putObjectArgs = PutObjectArgs.builder()
-                    .bucket(BUCKET_NAME)
-                    .object(objectName)
-                    .contentType(file.getContentType())
-                    .stream(file.getInputStream(), file.getSize(), ObjectWriteArgs.MIN_MULTIPART_SIZE).build();
-            minioClient.putObject(putObjectArgs);
-            LOGGER.info("文件上传成功!");
-            MinioUploadDto minioUploadDto = new MinioUploadDto();
-            minioUploadDto.setName(filename);
-            minioUploadDto.setUrl(ENDPOINT + "/" + BUCKET_NAME + "/" + objectName);
-            return CommonResult.success(minioUploadDto);
+            MinioClient minioClient = createMinioClient();
+            ensureBucketExists(minioClient);
+            String objectName = generateObjectName(file.getOriginalFilename());
+            uploadFileToMinio(minioClient, file, objectName);
+            return CommonResult.success(createMinioUploadDto(file.getOriginalFilename(), objectName));
         } catch (Exception e) {
-            e.printStackTrace();
-            LOGGER.info("上传发生错误: {}！", e.getMessage());
+            LOGGER.error("上传发生错误: {}", e.getMessage(), e);
+            return CommonResult.failed();
         }
-        return CommonResult.failed();
+    }
+
+    private MinioClient createMinioClient() {
+        return MinioClient.builder()
+                .endpoint(ENDPOINT)
+                .credentials(ACCESS_KEY, SECRET_KEY)
+                .build();
+    }
+
+    private void ensureBucketExists(MinioClient minioClient) throws Exception {
+        boolean isExist = minioClient.bucketExists(BucketExistsArgs.builder().bucket(BUCKET_NAME).build());
+        if (!isExist) {
+            minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
+            setBucketPolicy(minioClient);
+        }
+    }
+
+    private void setBucketPolicy(MinioClient minioClient) throws Exception {
+        BucketPolicyConfigDto bucketPolicyConfigDto = createBucketPolicyConfigDto(BUCKET_NAME);
+        SetBucketPolicyArgs setBucketPolicyArgs = SetBucketPolicyArgs.builder()
+                .bucket(BUCKET_NAME)
+                .config(JSONUtil.toJsonStr(bucketPolicyConfigDto))
+                .build();
+        minioClient.setBucketPolicy(setBucketPolicyArgs);
+    }
+
+    private String generateObjectName(String originalFilename) {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+        return sdf.format(new Date()) + "/" + originalFilename;
+    }
+
+    private void uploadFileToMinio(MinioClient minioClient, MultipartFile file, String objectName) throws Exception {
+        PutObjectArgs putObjectArgs = PutObjectArgs.builder()
+                .bucket(BUCKET_NAME)
+                .object(objectName)
+                .contentType(file.getContentType())
+                .stream(file.getInputStream(), file.getSize(), ObjectWriteArgs.MIN_MULTIPART_SIZE)
+                .build();
+        minioClient.putObject(putObjectArgs);
+        LOGGER.info("文件上传成功!");
+    }
+
+    private MinioUploadDto createMinioUploadDto(String filename, String objectName) {
+        MinioUploadDto minioUploadDto = new MinioUploadDto();
+        minioUploadDto.setName(filename);
+        minioUploadDto.setUrl(ENDPOINT + "/" + BUCKET_NAME + "/" + objectName);
+        return minioUploadDto;
+    }
+
+    @ApiOperation("文件删除")
+    @RequestMapping(value = "/delete", method = RequestMethod.POST)
+    @ResponseBody
+    public CommonResult delete(@RequestParam("objectName") String objectName) {
+        try {
+            MinioClient minioClient = createMinioClient();
+            minioClient.removeObject(RemoveObjectArgs.builder().bucket(BUCKET_NAME).object(objectName).build());
+            return CommonResult.success(null);
+        } catch (Exception e) {
+            LOGGER.error("删除文件时发生错误: {}", e.getMessage(), e);
+            return CommonResult.failed();
+        }
     }
 
     /**
@@ -93,27 +125,10 @@ public class MinioController {
                 .Effect("Allow")
                 .Principal("*")
                 .Action("s3:GetObject")
-                .Resource("arn:aws:s3:::"+bucketName+"/*.**").build();
+                .Resource("arn:aws:s3:::" + bucketName + "/*.**").build();
         return BucketPolicyConfigDto.builder()
                 .Version("2012-10-17")
                 .Statement(CollUtil.toList(statement))
                 .build();
-    }
-
-    @ApiOperation("文件删除")
-    @RequestMapping(value = "/delete", method = RequestMethod.POST)
-    @ResponseBody
-    public CommonResult delete(@RequestParam("objectName") String objectName) {
-        try {
-            MinioClient minioClient = MinioClient.builder()
-                    .endpoint(ENDPOINT)
-                    .credentials(ACCESS_KEY,SECRET_KEY)
-                    .build();
-            minioClient.removeObject(RemoveObjectArgs.builder().bucket(BUCKET_NAME).object(objectName).build());
-            return CommonResult.success(null);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return CommonResult.failed();
     }
 }
